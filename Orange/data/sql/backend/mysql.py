@@ -35,8 +35,6 @@ class PymysqlBackend(Backend):
         except Exception as e:
             raise BackendError(str(e))
 
-    # "meta" methods
-
     def _get_cursor(self):
         try:
             if self.connection is None:

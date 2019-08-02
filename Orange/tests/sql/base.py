@@ -307,10 +307,106 @@ class MicrosoftTestConnection(DBTestConnection):
         from Orange.data.sql.backend import PymssqlBackend
         return PymssqlBackend(self.params)
 
+class MySQLTestConnection(DBTestConnection):
+    
+    uri_name = "mysql"
+    module = "mysql-connector-python"
+
+    @property
+    def params(self):
+        return self._params.copy()
+
+    def try_connection(self):
+        """
+        Test if db specific connection module is installed and if you can
+        connect to db.
+        """
+        try:
+            import mysql-connector-python as mysql
+            self.is_module = True
+            with mysql.connect(**self.params):
+                self.is_active = True
+        except:
+            pass
+
+    def create_sql_table(self, data, sql_column_types=None,
+                         sql_column_names=None, table_name=None):
+        """This creates a new sql table in the specific db."""
+        data = list(data)
+
+        if table_name is None:
+            table_name = ''.join(random.choices(string.ascii_lowercase, k=16))
+
+        if sql_column_types is None:
+            column_size = self._get_column_types(data)
+            sql_column_types = [
+                'float' if size == 0 else 'varchar({})'.format(size)
+                for size in column_size
+            ]
+
+        if sql_column_names is None:
+            sql_column_names = ["col{}".format(i)
+                                for i in range(len(sql_column_types))]
+        else:
+            sql_column_names = map(lambda x: '"{}"'.format(x), sql_column_names)
+
+        drop_table_sql = "DROP TABLE IF EXISTS {}".format(table_name)
+
+        create_table_sql = "CREATE TABLE {} ({})".format(
+            table_name,
+            ", ".join('{} {}'.format(n, t)
+                      for n, t in zip(sql_column_names, sql_column_types)))
+
+        insert_values = ", ".join(
+            "({})".format(
+                ", ".join("NULL" if v is None else "'{}'".format(v)
+                          for v, t in zip(row, sql_column_types))
+            ) for row in data
+        )
+
+        insert_sql = "INSERT INTO {} VALUES {}".format(table_name,
+                                                       insert_values)
+
+        import mysql-connector-python as mysql
+        with mysql.connect(**self.params) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(drop_table_sql)
+                cursor.execute(create_table_sql)
+                if insert_values:
+                    cursor.execute(insert_sql)
+            conn.commit()
+
+        return self.params, table_name
+
+    @staticmethod
+    def _get_column_types(data):
+        if not data:
+            return [0] * 3
+        column_size = [0] * len(data[0])
+        for row in data:
+            for i, value in enumerate(row):
+                if isinstance(value, str):
+                    column_size[i] = max(len(value), column_size[i])
+
+        return column_size
+
+    def drop_sql_table(self, table_name):
+        """This drops given sql table in the specific db."""
+        import mysql-connector-python as mysql
+        with mysql.connect(**self.params) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DROP TABLE {}".format(table_name))
+            conn.commit()
+
+    def get_backend(self):
+        """This returns the db specific Orange Backend."""
+        from Orange.data.sql.backend import PymysqlBackend
+        return PymysqlBackend(self.params)
 
 test_connections = {
     PostgresTestConnection.uri_name: PostgresTestConnection,
-    MicrosoftTestConnection.uri_name: MicrosoftTestConnection
+    MicrosoftTestConnection.uri_name: MicrosoftTestConnection,
+    MySQLTestConnection.uri_name: MySQLTestConnection,
 }
 
 
